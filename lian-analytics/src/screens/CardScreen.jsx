@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import CompletionScreen from "./CompletionScreen";
 
 const TAP_THRESHOLD = 16; // px — movement below this counts as a tap (flip) not a swipe
@@ -14,9 +14,16 @@ export default function CardScreen({ cards = [], onClose }) {
   const [animating, setAnimating] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [flipped, setFlipped] = useState(false);
+  // The 3D flip only animates on a deliberate tap. When moving to the next card we
+  // reset to the front instantly (no rotation), so the next card just "arrives".
+  const [flipAnimated, setFlipAnimated] = useState(false);
 
   const touchStartX = useRef(null);
   const mouseStartX = useRef(null);
+  // Mobile browsers fire emulated mouse events right after touch events. We record
+  // the last touch time and ignore mouse events that follow, so a tap doesn't get
+  // handled twice (which would flip the card and instantly flip it back).
+  const lastTouchTime = useRef(0);
 
   function swipeRight() {
     if (animating) return;
@@ -29,6 +36,7 @@ export default function CardScreen({ cards = [], onClose }) {
       setSwipeOffset(0);
       setAnimating(false);
       setFlipped(false);
+      setFlipAnimated(false);
       if (next >= total) {
         setCompleted(true);
       } else {
@@ -47,6 +55,7 @@ export default function CardScreen({ cards = [], onClose }) {
       setSwipeOffset(0);
       setAnimating(false);
       setFlipped(false);
+      setFlipAnimated(false);
       if (next >= total) {
         onClose();
       } else {
@@ -61,11 +70,13 @@ export default function CardScreen({ cards = [], onClose }) {
     setHistory((h) => h.slice(0, -1));
     setCurrent((c) => c - 1);
     setFlipped(false);
+    setFlipAnimated(false);
     if (lastAction === "right") setDone((d) => d - 1);
   }
 
   function toggleFlip() {
     if (animating) return;
+    setFlipAnimated(true);
     setFlipped((f) => !f);
   }
 
@@ -83,6 +94,7 @@ export default function CardScreen({ cards = [], onClose }) {
   // touch
   function onTouchStart(e) {
     if (animating) return;
+    lastTouchTime.current = Date.now();
     touchStartX.current = e.touches[0].clientX;
   }
   function onTouchMove(e) {
@@ -91,13 +103,15 @@ export default function CardScreen({ cards = [], onClose }) {
   }
   function onTouchEnd(e) {
     if (touchStartX.current === null) return;
+    lastTouchTime.current = Date.now();
     const delta = e.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
     endGesture(delta);
   }
 
   function onMouseDown(e) {
-    if (animating) return;
+    // Ignore the emulated mouse event that follows a touch.
+    if (animating || Date.now() - lastTouchTime.current < 700) return;
     mouseStartX.current = e.clientX;
   }
   function onMouseMove(e) {
@@ -190,7 +204,7 @@ export default function CardScreen({ cards = [], onClose }) {
             style={{
               transformStyle: "preserve-3d",
               WebkitTransformStyle: "preserve-3d",
-              transition: "transform 0.5s cubic-bezier(0.4,0.2,0.2,1)",
+              transition: flipAnimated ? "transform 0.5s cubic-bezier(0.4,0.2,0.2,1)" : "none",
               transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
             }}
           >
@@ -203,13 +217,6 @@ export default function CardScreen({ cards = [], onClose }) {
                 WebkitBackfaceVisibility: "hidden",
               }}
             >
-              {/* Flip icon — always at the bottom-left of the card */}
-              <div className="absolute bottom-[14px] left-[14px] z-10">
-                <IconButton onActivate={toggleFlip} ariaLabel="הצגת הסבר מדעי">
-                  <RefreshIcon />
-                </IconButton>
-              </div>
-
               {/* Empty image area — left blank on purpose for an illustration/video later */}
               <div className="flex-1" data-animation-slot="image" />
 
@@ -246,17 +253,16 @@ export default function CardScreen({ cards = [], onClose }) {
                 <h3 className="text-[24px] font-extrabold text-black leading-none">הידעת?</h3>
               </div>
 
-              {/* Scrollable scientific text */}
-              <div className="flex-1 min-h-0 overflow-y-auto mt-[18px]" dir="rtl">
-                <p className="text-right text-[#3A3A3A] text-[17px] leading-[28px]">
-                  {currentCard?.science ?? currentCard?.reason ?? ""}
-                </p>
-              </div>
+              {/* Scientific text — auto-shrinks so it always fits, no scrolling */}
+              <FitText text={currentCard?.science ?? currentCard?.reason ?? ""} />
 
-              {/* Bottom row: article button on the right, flip icon on the left (RTL) */}
-              <div className="flex items-center justify-between mt-[18px] shrink-0 h-[50px]">
+              {/* Bottom row: article button on the right (flip control sits on the card) */}
+              <div className="flex items-center justify-start mt-[18px] shrink-0 h-[50px]">
                 <a
-                  href={`https://he.wikipedia.org/w/index.php?search=${encodeURIComponent(taskName)}`}
+                  href={
+                    currentCard?.article ??
+                    `https://www.google.com/search?q=${encodeURIComponent(taskName)}`
+                  }
                   target="_blank"
                   rel="noopener noreferrer"
                   onMouseDown={(e) => e.stopPropagation()}
@@ -266,11 +272,16 @@ export default function CardScreen({ cards = [], onClose }) {
                 >
                   מעבר למאמר
                 </a>
-                <IconButton onActivate={toggleFlip} ariaLabel="חזרה למשימה">
-                  <RefreshIcon />
-                </IconButton>
               </div>
             </div>
+          </div>
+
+          {/* Single flip control on the card (bottom-left). It sits outside the 3D
+              flip container, so it never duplicates or mirrors on mobile. */}
+          <div className="absolute bottom-[14px] left-[14px] z-20">
+            <IconButton onActivate={toggleFlip} ariaLabel="היפוך הכרטיס">
+              <RefreshIcon />
+            </IconButton>
           </div>
         </div>
       </div>
@@ -290,6 +301,33 @@ export default function CardScreen({ cards = [], onClose }) {
           <UndoIcon />
         </button>
       </div>
+    </div>
+  );
+}
+
+/* Scientific text that shrinks its font-size until it fits the available height,
+   so the user never has to scroll. Re-fits whenever the text changes. */
+function FitText({ text }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let size = 18;
+    el.style.fontSize = size + "px";
+    while (el.scrollHeight > el.clientHeight && size > 10) {
+      size -= 0.5;
+      el.style.fontSize = size + "px";
+    }
+  }, [text]);
+
+  return (
+    <div
+      ref={ref}
+      dir="rtl"
+      className="flex-1 min-h-0 overflow-hidden mt-[18px] text-right text-[#3A3A3A]"
+      style={{ lineHeight: 1.6 }}
+    >
+      {text}
     </div>
   );
 }
