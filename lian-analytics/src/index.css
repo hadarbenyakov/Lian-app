@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Heebo', 'Assistant', sans-serif;
+  background: #f0f0f0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+  direction: rtl;
+}
+
+#root {
+  width: 393px;
+  min-height: 100vh;
+  background: #F9F9F9;
+  overflow: hidden;
+  position: relative;
+}
+
+@media (max-width: 393px) {
+  #root {
+    width: 100vw;
+  }
+}
+
+/* Welcome-screen rings — each colored arc "fills up" once by drawing its stroke,
+   then stays full. Paths use pathLength="100" so dashoffset 100 = empty and
+   0 = full, regardless of the real path length. */
+@keyframes ring-fill {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+.ring-arc {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: ring-fill 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
