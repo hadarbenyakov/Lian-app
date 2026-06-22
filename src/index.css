@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Heebo', 'Assistant', sans-serif;
+  background: #f0f0f0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 100vh;
+  direction: rtl;
+}
+
+#root {
+  width: 393px;
+  min-height: 100vh;
+  background: #F9F9F9;
+  overflow: hidden;
+  position: relative;
+}
+
+@media (max-width: 393px) {
+  #root {
+    width: 100vw;
+  }
+}
