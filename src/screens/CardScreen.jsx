@@ -1,12 +1,36 @@
-import { useState, useRef } from "react";
-import ProgressBar from "../components/ProgressBar";
+import { useState, useRef, useEffect } from "react";
 import CompletionScreen from "./CompletionScreen";
 import { exercises } from "../data/exercises";
 
-const TAP_THRESHOLD = 8; // px — movement below this counts as a tap (flip) not a swipe
+const TAP_THRESHOLD = 16; // px — movement below this counts as a tap (flip) not a swipe
+const PROGRESS_FILL = "#E6F784";
+const PROGRESS_TRACK = "#F5F5F5";
+
+const MOTIVATION = [
+  "את יכולה!",
+  "כל הכבוד!",
+  "עוד אחת קטנה!",
+  "את אלופה!",
+  "ממשיכים חזק!",
+  "גאה בך!",
+  "מדהים, כך ממשיכים!",
+  "את בדרך הנכונה!",
+  "תרגיל ועוד תרגיל!",
+  "וואו, איזה כוח!",
+];
+
+// Pick a random phrase that isn't the one currently showing.
+function nextPhrase(current) {
+  if (MOTIVATION.length < 2) return MOTIVATION[0];
+  let next = current;
+  while (next === current) {
+    next = MOTIVATION[Math.floor(Math.random() * MOTIVATION.length)];
+  }
+  return next;
+}
 
 export default function CardScreen({ context, onClose }) {
-  const { badge, badgeColor = "#e3f500", total = 11 } = context;
+  const { badge, badgeColor = "#E6F784", total = 11 } = context;
   const startProgress = context.progress ?? 0;
   const [current, setCurrent] = useState(startProgress);
   const [done, setDone] = useState(startProgress);
@@ -15,10 +39,37 @@ export default function CardScreen({ context, onClose }) {
   const [animating, setAnimating] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [flipped, setFlipped] = useState(false);
+  const [phrase, setPhrase] = useState(MOTIVATION[0]);
+  const [phraseKey, setPhraseKey] = useState(0); // bump to re-show the bar on each new card
+  const [barVisible, setBarVisible] = useState(false);
+  const [animatePhrase, setAnimatePhrase] = useState(false);
+  const barVisibleRef = useRef(false);
+  const hideTimer = useRef(null);
 
   const touchStartX = useRef(null);
   const mouseStartX = useRef(null);
-  const progressBarColor = badgeColor;
+
+  function showNewPhrase() {
+    // Animate the text only when the bar is still up (didn't get to slide down).
+    // When it slides up from the bottom, the slide itself is the animation.
+    setAnimatePhrase(barVisibleRef.current);
+    setPhrase((p) => nextPhrase(p));
+    setPhraseKey((k) => k + 1);
+  }
+
+  // Each new card (phraseKey bump) slides the bar up, holds 5s, then slides it down & hides.
+  useEffect(() => {
+    setBarVisible(true);
+    barVisibleRef.current = true;
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      setBarVisible(false);
+      barVisibleRef.current = false;
+    }, 3000);
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    };
+  }, [phraseKey]);
 
   function swipeRight() {
     if (animating) return;
@@ -35,6 +86,7 @@ export default function CardScreen({ context, onClose }) {
         setCompleted(true);
       } else {
         setCurrent(next);
+        showNewPhrase();
       }
     }, 300);
   }
@@ -53,6 +105,7 @@ export default function CardScreen({ context, onClose }) {
         onClose(done);
       } else {
         setCurrent(next);
+        showNewPhrase();
       }
     }, 300);
   }
@@ -122,7 +175,7 @@ export default function CardScreen({ context, onClose }) {
   const cardList = exercises[badge] ?? [];
   const currentCard = cardList[current] ?? null;
 
-  // Split "name — reps" into two lines (some tasks have no reps part)
+  // Split "name — reps" — name as the title, reps shown below it.
   const taskText = currentCard?.task ?? "";
   const dashIdx = taskText.indexOf("—");
   const taskName = dashIdx === -1 ? taskText.trim() : taskText.slice(0, dashIdx).trim();
@@ -131,68 +184,49 @@ export default function CardScreen({ context, onClose }) {
   const cardTransform = `translateX(${swipeOffset}px) rotate(${swipeOffset * 0.025}deg)`;
   const cardOpacity = Math.max(0, 1 - Math.abs(swipeOffset) / 400);
 
+  const pct = total > 0 ? (done / total) * 100 : 0;
+
   if (completed) {
     return <CompletionScreen badge={badge} badgeColor={badgeColor} onHome={() => onClose(total)} />;
   }
 
   return (
-    <div className="bg-[#F9F9F9] min-h-screen flex flex-col px-4 pt-[74px] pb-8 select-none">
-      {/* Top row: [X right] [badge center] [spacer left] */}
-      <div className="flex items-center justify-between mb-0">
+    <div className="relative bg-[#F9F9F9] h-screen w-full max-w-[393px] mx-auto overflow-hidden flex flex-col pt-[74px] px-4 pb-[120px] select-none">
+      {/* Top row: [X right] [title center] [spacer left] */}
+      <div className="flex items-center justify-between h-[33px]">
         <button
           onClick={() => onClose(done)}
-          className="w-[33px] h-[33px] rounded-full border border-[#d0d0d0] flex items-center justify-center text-black text-[14px] shrink-0"
+          aria-label="סגירה"
+          className="w-[33px] h-[33px] flex items-center justify-center text-black shrink-0"
         >
-          ✕
+          <CloseIcon />
         </button>
-        <span
-          className="text-[18px] text-black px-[12px] py-1 rounded-[40px]"
-          style={{ backgroundColor: badgeColor }}
-        >
-          {badge}
-        </span>
+        <span className="text-[18px] text-black">{badge}</span>
         <div className="w-[33px] shrink-0" />
       </div>
 
-      {/* Progress counter */}
-      <p className="text-[22px] text-black text-center mt-4 mb-3">
-        {done}/{total}
-      </p>
-
       {/* Progress bar */}
-      <div className="mb-5">
-        <ProgressBar progress={done} total={total} color={progressBarColor} />
+      <div
+        className="relative w-full h-[8px] mt-[21px] rounded-full"
+        style={{ backgroundColor: PROGRESS_TRACK }}
+      >
+        <div
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{ width: `${pct}%`, minWidth: 19, backgroundColor: PROGRESS_FILL }}
+        />
       </div>
 
-      {/* Stacked cards */}
-      <div className="relative flex-1" style={{ minHeight: 420 }}>
-        {[
-          { top: 0 },
-          { top: 13 },
-          { top: 28 },
-          { top: 41 },
-        ].map((layer, i) => (
-          <div
-            key={i}
-            className="absolute left-0 right-0 rounded-[16px]"
-            style={{
-              top: layer.top,
-              bottom: 0,
-              background: "linear-gradient(180deg, #ffffff 0%, #f1f1f1 100%)",
-              boxShadow: "0 2px 10px rgba(0,0,0,0.05), inset 0 7px 9px -6px rgba(0,0,0,0.10)",
-            }}
-          />
-        ))}
-
+      {/* Card */}
+      <div className="relative mt-[24px] flex-1 min-h-0">
         {/* Main swipeable card */}
         <div
-          className="absolute left-0 right-0 cursor-grab active:cursor-grabbing"
+          className="absolute inset-0 cursor-grab active:cursor-grabbing"
           style={{
-            top: 58,
-            bottom: 0,
             transform: cardTransform,
             opacity: cardOpacity,
-            transition: animating ? "transform 0.3s cubic-bezier(0.25,0.46,0.45,0.94), opacity 0.3s ease" : "none",
+            transition: animating
+              ? "transform 0.3s cubic-bezier(0.25,0.46,0.45,0.94), opacity 0.3s ease"
+              : "none",
             touchAction: "pan-y",
             perspective: 1200,
             WebkitPerspective: 1200,
@@ -217,52 +251,59 @@ export default function CardScreen({ context, onClose }) {
           >
             {/* FRONT — the exercise */}
             <div
-              className="absolute inset-0 rounded-[16px] overflow-hidden flex flex-col justify-between"
+              className="absolute inset-0 rounded-[28px] bg-white flex flex-col items-center"
               style={{
-                backgroundColor: "#ffffff",
-                boxShadow: "0 2px 10px rgba(0,0,0,0.05), inset 0 7px 9px -6px rgba(0,0,0,0.10)",
+                boxShadow: "0 0 6.3px rgba(0,0,0,0.12)",
                 backfaceVisibility: "hidden",
                 WebkitBackfaceVisibility: "hidden",
               }}
             >
-              <div className="flex-1 flex flex-col items-center justify-center px-6 pt-6 gap-2 text-center pointer-events-none">
-                <p className="text-[22px] font-medium text-black leading-snug">
-                  {taskName}
+              {/* Title */}
+              <h2 className="mt-[57px] px-6 text-center font-extrabold text-black text-[28px] leading-[40px] pointer-events-none">
+                {taskName}
+              </h2>
+
+              {taskReps && (
+                <p className="mt-[10px] px-6 text-center font-medium text-[#606060] text-[18px] leading-[24px] pointer-events-none">
+                  {taskReps}
                 </p>
-                {taskReps && (
-                  <p className="text-[16px] font-light text-[#555] leading-snug">
-                    {taskReps}
-                  </p>
-                )}
+              )}
+
+              {/* Animation slot — drop the <video> for this exercise here.
+                  Kept empty on purpose so videos can be imported later. */}
+              <div
+                className="mt-[14px] w-[220px] h-[231px] flex items-center justify-center overflow-hidden"
+                data-animation-slot={badge}
+              >
+                {/* TODO: <video src={...} autoPlay loop muted playsInline className="w-full h-full object-contain" /> */}
               </div>
 
-              <div className="flex justify-center pb-6">
+              {/* Replay / flip icon */}
+              <div className="mt-auto mb-[18px] flex justify-center">
                 <IconButton onActivate={toggleFlip} ariaLabel="הצגת הסבר">
-                  <FlipIcon />
+                  <RefreshIcon />
                 </IconButton>
               </div>
             </div>
 
             {/* BACK — the reason */}
             <div
-              className="absolute inset-0 rounded-[16px] overflow-hidden flex flex-col"
+              className="absolute inset-0 rounded-[28px] bg-white flex flex-col"
               style={{
-                backgroundColor: "#1c1c1c",
-                boxShadow: "0 2px 10px rgba(0,0,0,0.05), inset 0 7px 9px -6px rgba(0,0,0,0.25)",
+                boxShadow: "0 0 6.3px rgba(0,0,0,0.12)",
                 backfaceVisibility: "hidden",
                 WebkitBackfaceVisibility: "hidden",
                 transform: "rotateY(180deg)",
               }}
             >
-              <div className="flex-1 flex items-center justify-center px-6 pt-6 text-center pointer-events-none">
-                <p className="text-[22px] font-medium text-white leading-snug">
+              <div className="flex-1 flex items-center justify-center px-7 text-center pointer-events-none">
+                <p className="text-[26px] font-bold text-[#DAB8F4] leading-[38px]">
                   {currentCard?.reason ?? ""}
                 </p>
               </div>
-
-              <div className="flex justify-center pb-6">
-                <IconButton onActivate={toggleFlip} ariaLabel="חזרה למשימה" light>
-                  <FlipIcon />
+              <div className="mb-[18px] flex justify-center">
+                <IconButton onActivate={toggleFlip} ariaLabel="חזרה למשימה">
+                  <RefreshIcon />
                 </IconButton>
               </div>
             </div>
@@ -270,19 +311,43 @@ export default function CardScreen({ context, onClose }) {
         </div>
       </div>
 
-      {/* Bottom row */}
-      <div className="flex items-center justify-between mt-4">
-        <p className="text-[12px] text-black text-center flex-1 mx-4 leading-[1.4]">
+      {/* Hint row: [hint center] [undo left] — moves up with the bottom bar, drops 30px when it hides */}
+      <div
+        className="flex items-center mt-[22px]"
+        style={{
+          transform: barVisible ? "translateY(0)" : "translateY(30px)",
+          transition: "transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)",
+        }}
+      >
+        <div className="w-[24px] shrink-0" />
+        <p className="flex-1 text-[12px] text-[#606060] text-center leading-[1.4] px-2">
           תחליקי את הכרטיסייה ימינה אם ביצעת את המשימה
         </p>
         <button
           onClick={resetLast}
           disabled={current <= startProgress || history.length === 0}
-          className="w-10 h-10 flex items-center justify-center disabled:opacity-30"
+          aria-label="ביטול"
+          className="w-[24px] h-[24px] flex items-center justify-center disabled:opacity-30 shrink-0"
         >
-          <ResetCardIcon />
+          <UndoIcon />
         </button>
       </div>
+
+      {/* Bottom CTA bar — slides up on each new card, holds 5s, then slides down & hides */}
+      <button
+        onClick={swipeRight}
+        aria-hidden={!barVisible}
+        className="absolute bottom-0 left-0 right-0 h-[112px] rounded-t-[28px] bg-[#DAB8F4] flex items-center justify-center text-black text-[26px] font-bold"
+        style={{
+          transform: barVisible ? "translateY(0)" : "translateY(120%)",
+          transition: "transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          pointerEvents: barVisible ? "auto" : "none",
+        }}
+      >
+        <span key={phraseKey} className={`inline-block ${animatePhrase ? "phrase-pop" : ""}`}>
+          {phrase}
+        </span>
+      </button>
     </div>
   );
 }
@@ -308,9 +373,17 @@ function IconButton({ children, onActivate, ariaLabel, light = false }) {
   );
 }
 
-function FlipIcon() {
+function CloseIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg width="24" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M4 9a8 8 0 0 1 13.5-3.5L20 8"
         stroke="currentColor"
@@ -331,10 +404,17 @@ function FlipIcon() {
   );
 }
 
-function ResetCardIcon() {
+function UndoIcon() {
   return (
-    <svg width="23" height="17" viewBox="0 0 23 17" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M22.102 10.471C22.1001 12.0685 21.4646 13.6001 20.3349 14.7296C19.2052 15.8591 17.6735 16.4944 16.076 16.496H12.739C12.4738 16.496 12.2194 16.3906 12.0319 16.2031C11.8443 16.0156 11.739 15.7612 11.739 15.496C11.739 15.2308 11.8443 14.9764 12.0319 14.7889C12.2194 14.6013 12.4738 14.496 12.739 14.496H16.076C16.6099 14.5044 17.1403 14.4065 17.636 14.208C18.1318 14.0094 18.5831 13.7143 18.9637 13.3396C19.3443 12.965 19.6465 12.5184 19.8529 12.0258C20.0592 11.5332 20.1654 11.0045 20.1654 10.4705C20.1654 9.93644 20.0592 9.40773 19.8529 8.91515C19.6465 8.42257 19.3443 7.97596 18.9637 7.60132C18.5831 7.22669 18.1318 6.93151 17.636 6.73299C17.1403 6.53447 16.6099 6.43657 16.076 6.44498H3.74097L6.92997 9.12898C7.03136 9.21326 7.11509 9.31676 7.17633 9.43352C7.23757 9.55028 7.27512 9.678 7.28681 9.80933C7.2985 9.94066 7.2841 10.073 7.24445 10.1987C7.2048 10.3245 7.14067 10.4411 7.05576 10.542C6.97085 10.6429 6.86683 10.726 6.74969 10.7865C6.63255 10.847 6.5046 10.8837 6.3732 10.8946C6.2418 10.9055 6.10955 10.8902 5.98405 10.8498C5.85856 10.8094 5.7423 10.7445 5.64197 10.659L0.355969 6.20998C0.244471 6.11611 0.154839 5.99901 0.0933495 5.86686C0.0318601 5.73472 0 5.59073 0 5.44498C0 5.29923 0.0318601 5.15524 0.0933495 5.0231C0.154839 4.89095 0.244471 4.77385 0.355969 4.67998L5.64197 0.230981C5.84509 0.0621403 6.10677 -0.0194796 6.36986 0.00394181C6.63296 0.0273632 6.8761 0.153923 7.04621 0.35599C7.21631 0.558057 7.29957 0.819217 7.27779 1.08245C7.25601 1.34569 7.13097 1.58962 6.92997 1.76098L3.74197 4.44598H16.076C17.6734 4.44783 19.2049 5.08317 20.3346 6.21265C21.4643 7.34212 22.0999 8.87353 22.102 10.471Z" fill="black"/>
+    <svg width="22" height="20" viewBox="0 0 22 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M7 3L2 8l5 5" stroke="black" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M2 8h11a7 7 0 0 1 0 14H9"
+        stroke="black"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

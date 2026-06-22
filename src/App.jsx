@@ -1,18 +1,18 @@
 import { useState } from "react";
+import WelcomeScreen from "./screens/WelcomeScreen";
 import RoutineScreen from "./screens/RoutineScreen";
 import FocusScreen from "./screens/FocusScreen";
 import CardScreen from "./screens/CardScreen";
 
-const INITIAL_PROGRESS = {
-  "מוטוריקה עדינה": 1,
-  "תרגילי גב": 0,
-  "רגליים": 0,
-};
+// By default nothing is started — every exercise begins at zero.
+const INITIAL_PROGRESS = {};
 
 export default function App() {
+  const [started, setStarted] = useState(false);
   const [mode, setMode] = useState("routine"); // 'routine' | 'focus'
   const [cardContext, setCardContext] = useState(null); // null = home, object = card screen
   const [progressMap, setProgressMap] = useState(INITIAL_PROGRESS);
+  const [completedBadge, setCompletedBadge] = useState(null); // drives the home fly-away animation
 
   function handleModeChange(newMode) {
     if (newMode !== mode) setProgressMap(INITIAL_PROGRESS);
@@ -26,9 +26,18 @@ export default function App() {
 
   function handleCloseCards(newProgress) {
     if (newProgress !== undefined && cardContext?.badge) {
+      // Persist progress (including partial — when leaving mid-exercise) back to the home screen.
       setProgressMap((prev) => ({ ...prev, [cardContext.badge]: newProgress }));
+      // Fully completed → flag it so the home screen plays the fly-away animation.
+      if (cardContext.total && newProgress >= cardContext.total) {
+        setCompletedBadge(cardContext.badge);
+      }
     }
     setCardContext(null);
+  }
+
+  if (!started) {
+    return <WelcomeScreen onStart={() => setStarted(true)} />;
   }
 
   if (cardContext) {
@@ -49,6 +58,8 @@ export default function App() {
       onModeChange={handleModeChange}
       onStartExercise={handleStartExercise}
       progressMap={progressMap}
+      completedBadge={completedBadge}
+      onCompletionAnimationDone={() => setCompletedBadge(null)}
     />
   );
 }
