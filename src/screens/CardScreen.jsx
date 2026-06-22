@@ -42,7 +42,9 @@ export default function CardScreen({ context, onClose }) {
   const [animating, setAnimating] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [flipped, setFlipped] = useState(false);
-  const [flipAnim, setFlipAnim] = useState(true); // false = snap flip instantly (during card change)
+  // Bumped on every card change. Used as the flip container's key so it remounts fresh on its
+  // front face — no flip animation between cards (only a manual tap animates the flip).
+  const [cardSeq, setCardSeq] = useState(0);
   const [phrase, setPhrase] = useState(MOTIVATION[0]);
   const [phraseKey, setPhraseKey] = useState(0); // bump to re-show the bar on each new card
   const [barVisible, setBarVisible] = useState(false);
@@ -76,12 +78,11 @@ export default function CardScreen({ context, onClose }) {
     };
   }, [phraseKey]);
 
-  // Snap the card back to its front face WITHOUT animating — so the next card just appears
-  // showing its name, instead of doing a flip-back on transition.
-  function resetFlipInstant() {
-    setFlipAnim(false);
+  // Move to the next card: reset to the front face and bump the key so the flip container
+  // remounts (no flip animation between cards).
+  function showFrontInstant() {
     setFlipped(false);
-    setTimeout(() => setFlipAnim(true), 60);
+    setCardSeq((s) => s + 1);
   }
 
   // Swipe right = "done" → remove the card from the queue. Finishes when the queue is empty.
@@ -95,7 +96,7 @@ export default function CardScreen({ context, onClose }) {
       setQueue(nextQueue);
       setSwipeOffset(0);
       setAnimating(false);
-      resetFlipInstant();
+      showFrontInstant();
       if (nextQueue.length === 0) {
         setCompleted(true);
       } else {
@@ -115,7 +116,7 @@ export default function CardScreen({ context, onClose }) {
       setQueue(nextQueue);
       setSwipeOffset(0);
       setAnimating(false);
-      resetFlipInstant();
+      showFrontInstant();
       showNewPhrase();
     }, 300);
   }
@@ -125,7 +126,7 @@ export default function CardScreen({ context, onClose }) {
     const prev = history[history.length - 1];
     setHistory((h) => h.slice(0, -1));
     setQueue(prev);
-    setFlipped(false);
+    showFrontInstant();
   }
 
   function toggleFlip() {
@@ -261,13 +262,15 @@ export default function CardScreen({ context, onClose }) {
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseLeave}
         >
-          {/* Flip container */}
+          {/* Flip container — keyed by cardSeq so each new card remounts on its front face
+              (a flip only animates on a manual tap, never between cards) */}
           <div
+            key={cardSeq}
             className="relative w-full h-full"
             style={{
               transformStyle: "preserve-3d",
               WebkitTransformStyle: "preserve-3d",
-              transition: flipAnim ? "transform 0.5s cubic-bezier(0.4,0.2,0.2,1)" : "none",
+              transition: "transform 0.5s cubic-bezier(0.4,0.2,0.2,1)",
               transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
             }}
           >
@@ -322,11 +325,6 @@ export default function CardScreen({ context, onClose }) {
                 <p className="text-[26px] font-bold text-[#DAB8F4] leading-[38px]">
                   {currentCard?.reason ?? ""}
                 </p>
-              </div>
-              <div className="mb-[18px] flex justify-center">
-                <IconButton onActivate={toggleFlip} ariaLabel="חזרה למשימה">
-                  <RefreshIcon />
-                </IconButton>
               </div>
             </div>
           </div>
