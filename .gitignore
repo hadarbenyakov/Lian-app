@@ -23,7 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 
-# Nested variant sub-projects (kept out of the main repo)
+# Nested variant sub-projects / copies (kept out of the main repo)
 ליאן אנליטי רגשי/
 ליאן אנליטי רגשי 2/
 ליאן קוגניטיבי/
+lian app analitics/
+lian-app copy/

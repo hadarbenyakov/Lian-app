@@ -26,10 +26,10 @@ export default function FocusScreen({ onModeChange, onStartExercise }) {
           badge="נסיעה לעפולה"
           badgeColor="#E3F500"
           progress={0}
-          total={4}
+          total={5}
           subtitle="תרגילי יציבה + הליכה"
           buttonLabel="המשיכי"
-          onPress={() => onStartExercise({ badge: "נסיעה לעפולה", badgeColor: "#E3F500", progress: 0, total: 4 })}
+          onPress={() => onStartExercise({ badge: "נסיעה לעפולה", badgeColor: "#E3F500", progress: 0, total: 5 })}
         />
         <ExerciseCard
           badge="קוקטייל עם יעל"

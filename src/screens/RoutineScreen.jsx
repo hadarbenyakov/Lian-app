@@ -25,6 +25,7 @@ export default function RoutineScreen({
   progressMap = {},
   completedBadge = null,
   onCompletionAnimationDone,
+  onReset,
 }) {
   const p = (badge, fallback = 0) => progressMap[badge] ?? fallback;
 
@@ -55,12 +56,22 @@ export default function RoutineScreen({
   const scrollYRef = useRef(0); // latest raw scrollTop
   const rafRef = useRef(null);
   const listRef = useRef(null); // the scrolling content below the header
+  const eventShownRef = useRef(true); // false once the featured event is gone
 
   // The list tracks the RAW scroll exactly (no easing) so it never drifts/bounces after you
   // stop. The extra `HEADER_SHRINK*(eased - raw)` term compensates for the header still
   // easing above it, so the two stay aligned while the header animates smoothly.
   function applyPin() {
     if (!listRef.current) return;
+    // Once the event card is gone the header no longer collapses, so the pin machinery is
+    // pointless — and on iOS Safari a leftover composited transform can stay unpainted until
+    // the next touch. Drop the transform & compositing entirely so the list paints normally.
+    if (!eventShownRef.current) {
+      listRef.current.style.transform = "none";
+      listRef.current.style.willChange = "auto";
+      return;
+    }
+    listRef.current.style.willChange = "transform";
     const y = scrollYRef.current;
     const raw = clamp(y / COLLAPSE_RANGE, 0, 1);
     const pin = Math.min(y, COLLAPSE_RANGE) + HEADER_SHRINK * (tRef.current - raw);
@@ -116,7 +127,7 @@ export default function RoutineScreen({
 
   // Featured event — same completion rules as the daily cards: always shown until finished,
   // then it flies away to the left and disappears.
-  const EVENT = { badge: "נסיעה לעפולה", total: 11 };
+  const EVENT = { badge: "נסיעה לעפולה", total: 5 };
   const eventComplete = p(EVENT.badge) >= EVENT.total;
   const eventFlying = flyingBadge === EVENT.badge;
   const eventCollapsed = eventFlying && collapsing;
@@ -124,6 +135,19 @@ export default function RoutineScreen({
 
   const startEvent = () =>
     onStartExercise({ badge: EVENT.badge, badgeColor: BADGE_BG, total: EVENT.total });
+
+  // Daily cards still worth showing (not finished, or finished but mid fly-away animation).
+  const visibleDaily = DAILY.filter((ex) => {
+    const isComplete = p(ex.badge, ex.progress) >= ex.total;
+    const isFlying = flyingBadge === ex.badge;
+    return !(isComplete && !isFlying);
+  });
+  const noDailyLeft = visibleDaily.length === 0;
+  // Everything (event + all daily) done → show a friendly all-done state instead of a blank screen.
+  const allDone = !showEvent && noDailyLeft;
+
+  // Keep applyPin aware of whether the collapsing event card still exists.
+  eventShownRef.current = showEvent;
 
   return (
     <div
@@ -213,17 +237,18 @@ export default function RoutineScreen({
       {/* Daily exercises — held while the header collapses, then scroll under it.
           Transform is driven directly on the DOM (see onScroll) for jitter-free pinning. */}
       <div ref={listRef} style={{ willChange: "transform" }}>
+        {allDone && <AllDone onReset={onReset} />}
+
+        {!noDailyLeft && (
+        <>
         <h3 className="text-right text-[20px] font-medium text-black mt-[27px] px-4">
           תרגולים יומיומיים
         </h3>
 
         <div className="flex flex-col mt-[7px] px-4 pb-8">
-          {DAILY.map((ex, i) => {
+          {visibleDaily.map((ex, i) => {
             const prog = p(ex.badge, ex.progress);
-            const isComplete = prog >= ex.total;
             const isFlying = flyingBadge === ex.badge;
-            // Hide finished exercises — but keep the one that's currently flying away.
-            if (isComplete && !isFlying) return null;
             const collapsed = isFlying && collapsing;
             return (
               <div
@@ -250,10 +275,40 @@ export default function RoutineScreen({
             );
           })}
         </div>
+        </>
+        )}
       </div>
 
-      {/* Recover the scroll consumed by the collapse, so the last card stays reachable */}
-      <div style={{ height: `${COLLAPSE_RANGE}px` }} />
+      {/* Recover the scroll consumed by the collapse, so the last card stays reachable.
+          Only needed while the collapsing event card exists. */}
+      <div style={{ height: showEvent ? `${COLLAPSE_RANGE}px` : 0 }} />
+    </div>
+  );
+}
+
+function AllDone({ onReset }) {
+  return (
+    <div className="flex flex-col items-center text-center px-6 mt-[40px]">
+      <div
+        className="w-[88px] h-[88px] rounded-full flex items-center justify-center text-[40px]"
+        style={{ backgroundColor: BADGE_BG }}
+      >
+        🎉
+      </div>
+      <p className="mt-6 text-[24px] font-bold text-black leading-[32px]">
+        כל הכבוד, סיימת להיום!
+      </p>
+      <p className="mt-2 text-[16px] text-[#606060] leading-[24px]">
+        השלמת את כל התרגולים שלך. תחזרי מחר להמשך, או התחילי סבב חדש עכשיו.
+      </p>
+      {onReset && (
+        <button
+          onClick={onReset}
+          className="mt-7 bg-black text-white text-[16px] font-medium rounded-[23px] px-8 h-[45px] flex items-center justify-center"
+        >
+          התחילי מחדש
+        </button>
+      )}
     </div>
   );
 }
@@ -293,7 +348,7 @@ function DailyCard({ badge, progress, total, onPress }) {
       {/* CTA */}
       <button
         onClick={onPress}
-        className="mt-5 bg-black text-white text-[16px] font-medium rounded-[23px] w-[120px] h-[45px] flex items-center justify-center"
+        className="mt-5 ms-auto bg-black text-white text-[16px] font-medium rounded-[23px] w-[120px] h-[45px] flex items-center justify-center"
       >
         התחילי
       </button>

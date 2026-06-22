@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from "react";
 import CompletionScreen from "./CompletionScreen";
 import { exercises } from "../data/exercises";
 
-const TAP_THRESHOLD = 16; // px — movement below this counts as a tap (flip) not a swipe
 const PROGRESS_FILL = "#E6F784";
 const PROGRESS_TRACK = "#F5F5F5";
 
@@ -32,13 +31,18 @@ function nextPhrase(current) {
 export default function CardScreen({ context, onClose }) {
   const { badge, badgeColor = "#E6F784", total = 11 } = context;
   const startProgress = context.progress ?? 0;
-  const [current, setCurrent] = useState(startProgress);
-  const [done, setDone] = useState(startProgress);
-  const [history, setHistory] = useState([]);
+  const cardList = exercises[badge] ?? [];
+  // Queue of card indices still to be done. Swiping right removes the card; swiping left sends
+  // it to the back of the queue — so the exercise finishes only once every card was swiped right.
+  const [queue, setQueue] = useState(() =>
+    Array.from({ length: total }, (_, i) => i).slice(startProgress)
+  );
+  const [history, setHistory] = useState([]); // queue snapshots, for undo
   const [swipeOffset, setSwipeOffset] = useState(0);
   const [animating, setAnimating] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [flipped, setFlipped] = useState(false);
+  const [flipAnim, setFlipAnim] = useState(true); // false = snap flip instantly (during card change)
   const [phrase, setPhrase] = useState(MOTIVATION[0]);
   const [phraseKey, setPhraseKey] = useState(0); // bump to re-show the bar on each new card
   const [barVisible, setBarVisible] = useState(false);
@@ -48,6 +52,7 @@ export default function CardScreen({ context, onClose }) {
 
   const touchStartX = useRef(null);
   const mouseStartX = useRef(null);
+  const lastTouchEnd = useRef(0); // suppresses the emulated mouse events fired after a touch
 
   function showNewPhrase() {
     // Animate the text only when the bar is still up (didn't get to slide down).
@@ -71,52 +76,56 @@ export default function CardScreen({ context, onClose }) {
     };
   }, [phraseKey]);
 
+  // Snap the card back to its front face WITHOUT animating — so the next card just appears
+  // showing its name, instead of doing a flip-back on transition.
+  function resetFlipInstant() {
+    setFlipAnim(false);
+    setFlipped(false);
+    setTimeout(() => setFlipAnim(true), 60);
+  }
+
+  // Swipe right = "done" → remove the card from the queue. Finishes when the queue is empty.
   function swipeRight() {
-    if (animating) return;
+    if (animating || queue.length === 0) return;
     setAnimating(true);
     setSwipeOffset(500);
     setTimeout(() => {
-      const next = current + 1;
-      setDone((d) => d + 1);
-      setHistory((h) => [...h, "right"]);
+      setHistory((h) => [...h, queue]);
+      const nextQueue = queue.slice(1);
+      setQueue(nextQueue);
       setSwipeOffset(0);
       setAnimating(false);
-      setFlipped(false);
-      if (next >= total) {
+      resetFlipInstant();
+      if (nextQueue.length === 0) {
         setCompleted(true);
       } else {
-        setCurrent(next);
         showNewPhrase();
       }
     }, 300);
   }
 
+  // Swipe left = "not done yet" → send the card to the back of the queue so it comes around again.
   function swipeLeft() {
-    if (animating) return;
+    if (animating || queue.length === 0) return;
     setAnimating(true);
     setSwipeOffset(-500);
     setTimeout(() => {
-      const next = current + 1;
-      setHistory((h) => [...h, "left"]);
+      setHistory((h) => [...h, queue]);
+      const nextQueue = [...queue.slice(1), queue[0]];
+      setQueue(nextQueue);
       setSwipeOffset(0);
       setAnimating(false);
-      setFlipped(false);
-      if (next >= total) {
-        onClose(done);
-      } else {
-        setCurrent(next);
-        showNewPhrase();
-      }
+      resetFlipInstant();
+      showNewPhrase();
     }, 300);
   }
 
   function resetLast() {
-    if (animating || current <= startProgress || history.length === 0) return;
-    const lastAction = history[history.length - 1];
+    if (animating || history.length === 0) return;
+    const prev = history[history.length - 1];
     setHistory((h) => h.slice(0, -1));
-    setCurrent((c) => c - 1);
+    setQueue(prev);
     setFlipped(false);
-    if (lastAction === "right") setDone((d) => d - 1);
   }
 
   function toggleFlip() {
@@ -125,13 +134,13 @@ export default function CardScreen({ context, onClose }) {
   }
 
   function endGesture(delta) {
+    // A committed horizontal swipe (>60px) advances; anything smaller is treated as a
+    // tap/click anywhere on the card → flip it.
     if (delta > 60) swipeRight();
     else if (delta < -60) swipeLeft();
-    else if (Math.abs(delta) < TAP_THRESHOLD) {
+    else {
       setSwipeOffset(0);
       toggleFlip();
-    } else {
-      setSwipeOffset(0);
     }
   }
 
@@ -148,11 +157,14 @@ export default function CardScreen({ context, onClose }) {
     if (touchStartX.current === null) return;
     const delta = e.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
+    lastTouchEnd.current = Date.now();
     endGesture(delta);
   }
 
   function onMouseDown(e) {
     if (animating) return;
+    // Ignore the emulated mouse event that fires right after a real touch.
+    if (Date.now() - lastTouchEnd.current < 700) return;
     mouseStartX.current = e.clientX;
   }
   function onMouseMove(e) {
@@ -172,8 +184,8 @@ export default function CardScreen({ context, onClose }) {
     }
   }
 
-  const cardList = exercises[badge] ?? [];
-  const currentCard = cardList[current] ?? null;
+  const done = total - queue.length; // cards already swiped right
+  const currentCard = cardList[queue[0]] ?? null;
 
   // Split "name — reps" — name as the title, reps shown below it.
   const taskText = currentCard?.task ?? "";
@@ -218,9 +230,19 @@ export default function CardScreen({ context, onClose }) {
 
       {/* Card */}
       <div className="relative mt-[24px] flex-1 min-h-0">
+        {/* Decorative stacked cards behind — full-size cards, shifted up & narrower so their
+            tops peek above the main card (revealed as the top card swipes away) */}
+        <div
+          className="absolute top-0 left-6 right-6 bottom-[16px] rounded-[28px] bg-white"
+          style={{ boxShadow: "0 0 6.3px rgba(0,0,0,0.10)" }}
+        />
+        <div
+          className="absolute top-[8px] left-3 right-3 bottom-[8px] rounded-[28px] bg-white"
+          style={{ boxShadow: "0 0 6.3px rgba(0,0,0,0.10)" }}
+        />
         {/* Main swipeable card */}
         <div
-          className="absolute inset-0 cursor-grab active:cursor-grabbing"
+          className="absolute top-[16px] left-0 right-0 bottom-0 cursor-grab active:cursor-grabbing"
           style={{
             transform: cardTransform,
             opacity: cardOpacity,
@@ -245,7 +267,7 @@ export default function CardScreen({ context, onClose }) {
             style={{
               transformStyle: "preserve-3d",
               WebkitTransformStyle: "preserve-3d",
-              transition: "transform 0.5s cubic-bezier(0.4,0.2,0.2,1)",
+              transition: flipAnim ? "transform 0.5s cubic-bezier(0.4,0.2,0.2,1)" : "none",
               transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
             }}
           >
@@ -325,7 +347,7 @@ export default function CardScreen({ context, onClose }) {
         </p>
         <button
           onClick={resetLast}
-          disabled={current <= startProgress || history.length === 0}
+          disabled={history.length === 0}
           aria-label="ביטול"
           className="w-[24px] h-[24px] flex items-center justify-center disabled:opacity-30 shrink-0"
         >

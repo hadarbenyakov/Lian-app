@@ -60,6 +60,10 @@ export default function App() {
       progressMap={progressMap}
       completedBadge={completedBadge}
       onCompletionAnimationDone={() => setCompletedBadge(null)}
+      onReset={() => {
+        setCompletedBadge(null);
+        setProgressMap(INITIAL_PROGRESS);
+      }}
     />
   );
 }
